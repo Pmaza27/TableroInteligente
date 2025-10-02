@@ -134,14 +134,16 @@ else:
                 style = st.radio("🎨 Elige estilo de mejora:", ["Realista", "Caricatura", "Anime", "Acuarela"])
                 with st.spinner("Generando versión mejorada..."):
                     prompt_text = f"Mejora este boceto en una versión detallada, estilo {style}."
-                    response = client.images.generate(
-                        model="gpt-image-1",
-                        prompt=prompt_text,
-                        image=open(image_path, "rb"),
-                        size="512x512"
-                    )
-                    improved_image_url = response.data[0].url
-                    st.image(improved_image_url, caption=f"Imagen mejorada ({style})")
+              with open(image_path, "rb") as img_file:
+                  response = client.images.edit(
+                      model="gpt-image-1",
+                      prompt=prompt_text,
+                      image=img_file,
+                      size="512x512"
+                  )
+                  
+                  improved_image_url = response.data[0].url
+                  st.image(improved_image_url, caption=f"Imagen mejorada ({style})")
 
             # ---- Historia infantil ----
             elif option == "Crear historia infantil":
