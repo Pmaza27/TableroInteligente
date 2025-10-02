@@ -2,53 +2,60 @@ import os
 import streamlit as st
 import base64
 from openai import OpenAI
+import openai
 from PIL import Image
 import numpy as np
 from streamlit_drawable_canvas import st_canvas
 
-# Inicializar session_state
-if 'analysis_done' not in st.session_state:
-    st.session_state.analysis_done = False
-if 'full_response' not in st.session_state:
-    st.session_state.full_response = ""
-if 'base64_image' not in st.session_state:
-    st.session_state.base64_image = ""
-
-# Función para convertir imagen a base64
+# ======================
+# Funciones auxiliares
+# ======================
 def encode_image_to_base64(image_path):
-    with open(image_path, "rb") as image_file:
-        encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
-        return encoded_image
+    try:
+        with open(image_path, "rb") as image_file:
+            encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
+            return encoded_image
+    except FileNotFoundError:
+        return None
 
-# Configuración general
+def save_canvas_image(canvas_result, filename="img.png"):
+    input_numpy_array = np.array(canvas_result.image_data)
+    input_image = Image.fromarray(input_numpy_array.astype('uint8')).convert('RGBA')
+    input_image.save(filename)
+    return filename
+
+# ======================
+# Configuración
+# ======================
 st.set_page_config(page_title='Tablero Inteligente')
-st.title('🧠 Tablero Inteligente')
+st.title('🖌️ Tablero Inteligente')
 
 with st.sidebar:
-    st.subheader("Acerca de:")
-    st.write("Esta aplicación permite analizar dibujos, reconocer fórmulas matemáticas y más.")
+    st.subheader("🔧 Funcionalidades disponibles:")
+    option = st.selectbox(
+        "Elige lo que quieres hacer:",
+        ["Analizar boceto", "Resolver fórmulas matemáticas", "Mejorar dibujo", "Crear historia infantil"]
+    )
+    st.divider()
+    st.subheader("🔑 Configuración")
+    ke = st.text_input('Ingresa tu OpenAI API Key', type="password")
 
-# API key input
-ke = st.text_input('🔑 Ingresa tu Clave OpenAI', type="password")
-os.environ['OPENAI_API_KEY'] = ke
-api_key = os.environ.get('OPENAI_API_KEY')
-
-# Cliente OpenAI
+# Guardar API Key
+if ke:
+    os.environ['OPENAI_API_KEY'] = ke
+api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key) if api_key else None
 
-# Menú de funcionalidades
-funcionalidad = st.selectbox(
-    "Elige la funcionalidad que deseas:",
-    ["🖌️ Analizar Dibujo", "🔢 Resolver Fórmulas Matemáticas", "📚 Crear Historia Infantil"]
-)
+# ======================
+# Área de Dibujo / Upload
+# ======================
+st.subheader("✏️ Dibuja o sube tu imagen")
 
-# =============== FUNCIÓN 1: ANALIZAR DIBUJO ====================
-if funcionalidad == "🖌️ Analizar Dibujo":
-    st.subheader("Dibuja un boceto en el panel y analízalo")
-    stroke_width = st.slider('Selecciona el ancho de línea', 1, 30, 5)
-    stroke_color = "#000000"
+col1, col2 = st.columns(2)
+with col1:
+    stroke_width = st.slider('Ancho de línea', 1, 30, 5)
+    stroke_color = st.color_picker("Color de línea", "#000000")
     bg_color = '#FFFFFF'
-
     canvas_result = st_canvas(
         fill_color="rgba(255, 165, 0, 0.3)",
         stroke_width=stroke_width,
@@ -59,81 +66,97 @@ if funcionalidad == "🖌️ Analizar Dibujo":
         drawing_mode="freedraw",
         key="canvas",
     )
+with col2:
+    uploaded_file = st.file_uploader("📂 O sube una imagen", type=["png", "jpg", "jpeg"])
+    if uploaded_file is not None:
+        img = Image.open(uploaded_file)
+        st.image(img, caption="Imagen subida", use_column_width=True)
 
-    analyze_button = st.button("🔍 Analizar Dibujo")
-
-    if canvas_result.image_data is not None and api_key and analyze_button:
-        input_numpy_array = np.array(canvas_result.image_data)
-        input_image = Image.fromarray(input_numpy_array.astype('uint8')).convert('RGBA')
-        input_image.save('img.png')
-
-        base64_image = encode_image_to_base64("img.png")
-
-        with st.spinner("Analizando dibujo..."):
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "user",
-                     "content": [
-                         {"type": "text", "text": "Describe brevemente en español la imagen."},
-                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
-                     ]}
-                ],
-                max_tokens=500,
-            )
-
-        st.session_state.full_response = response.choices[0].message.content
-        st.write("### 📝 Descripción generada:")
-        st.write(st.session_state.full_response)
-        st.session_state.analysis_done = True
-
-
-# =============== FUNCIÓN 2: RECONOCER Y RESOLVER FÓRMULAS ====================
-elif funcionalidad == "🔢 Resolver Fórmulas Matemáticas":
-    st.subheader("Sube una imagen con una fórmula matemática escrita")
-    uploaded_file = st.file_uploader("📂 Sube una imagen (JPG o PNG)", type=["jpg", "jpeg", "png"])
-    solve_button = st.button("🧮 Reconocer y Resolver")
-
-    if uploaded_file and api_key and solve_button:
-        image = Image.open(uploaded_file)
-        image.save("formula.png")
-
-        base64_image = encode_image_to_base64("formula.png")
-
-        with st.spinner("Reconociendo fórmula y resolviendo..."):
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "user",
-                     "content": [
-                         {"type": "text", "text": "Reconoce la fórmula matemática en esta imagen, exprésala en notación matemática y resuélvela paso a paso."},
-                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
-                     ]}
-                ],
-                max_tokens=800,
-            )
-
-        st.markdown("### ✏️ Solución encontrada:")
-        st.write(response.choices[0].message.content)
-
-
-# =============== FUNCIÓN 3: CREAR HISTORIA INFANTIL ====================
-elif funcionalidad == "📚 Crear Historia Infantil":
-    st.subheader("Genera una historia infantil a partir de una idea")
-    idea = st.text_area("Escribe una idea o tema para la historia")
-
-    if st.button("✨ Crear Historia") and api_key and idea:
-        with st.spinner("Generando historia..."):
-            story_response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": f"Crea una historia infantil breve, creativa y entretenida sobre: {idea}"}],
-                max_tokens=500,
-            )
-        st.markdown("**📖 Tu historia:**")
-        st.write(story_response.choices[0].message.content)
-
-
-# Warning si no hay API Key
+# ======================
+# Lógica según opción
+# ======================
 if not api_key:
-    st.warning("⚠️ Por favor ingresa tu API key para usar la aplicación.")
+    st.warning("⚠️ Por favor ingresa tu API key en la barra lateral.")
+else:
+    if st.button("▶ Ejecutar"):
 
+        # Guardar imagen desde canvas o subida
+        image_path = None
+        if canvas_result.image_data is not None:
+            image_path = save_canvas_image(canvas_result)
+        elif uploaded_file is not None:
+            image_path = "uploaded.png"
+            img.save(image_path)
+
+        if not image_path:
+            st.error("Por favor dibuja o sube una imagen antes de continuar.")
+        else:
+            base64_image = encode_image_to_base64(image_path)
+
+            # ---- Analizar boceto ----
+            if option == "Analizar boceto":
+                with st.spinner("Analizando boceto..."):
+                    prompt_text = "Describe en español brevemente el contenido de este boceto."
+                    response = openai.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt_text},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                            ]
+                        }],
+                        max_tokens=400,
+                    )
+                    st.success("✅ Análisis completado:")
+                    st.write(response.choices[0].message.content)
+
+            # ---- Resolver fórmulas matemáticas ----
+            elif option == "Resolver fórmulas matemáticas":
+                with st.spinner("Resolviendo..."):
+                    prompt_text = "Reconoce la fórmula matemática en la imagen y resuélvela paso a paso."
+                    response = openai.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt_text},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                            ]
+                        }],
+                        max_tokens=500,
+                    )
+                    st.success("✅ Resultado de la fórmula:")
+                    st.write(response.choices[0].message.content)
+
+            # ---- Mejorar dibujo ----
+            elif option == "Mejorar dibujo":
+                style = st.radio("🎨 Elige estilo de mejora:", ["Realista", "Caricatura", "Anime", "Acuarela"])
+                with st.spinner("Generando versión mejorada..."):
+                    prompt_text = f"Mejora este boceto en una versión detallada, estilo {style}."
+                    response = client.images.generate(
+                        model="gpt-image-1",
+                        prompt=prompt_text,
+                        image=open(image_path, "rb"),
+                        size="512x512"
+                    )
+                    improved_image_url = response.data[0].url
+                    st.image(improved_image_url, caption=f"Imagen mejorada ({style})")
+
+            # ---- Historia infantil ----
+            elif option == "Crear historia infantil":
+                with st.spinner("Creando historia..."):
+                    prompt_text = f"Basándote en este dibujo, crea una historia infantil corta, creativa y entretenida."
+                    response = openai.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt_text},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                            ]
+                        }],
+                        max_tokens=500,
+                    )
+                    st.success("📖 Tu historia:")
+                    st.write(response.choices[0].message.content)
